@@ -76,13 +76,13 @@ bool nextCell(int mrows, int mcols, int base, int k, int *nr, int *nc) {
 	Questa funzione viene usata durante la scansione e scrittura della matrice
 	di programmazione dinamica per calcolare la coordinata della prossima cella
 	da visitare. Riceve in input le dimensioni della matrice, i parametri della
-	banda, le coordinate della cella attuale (da aggiornare con quelle della
+	banda e le coordinate della cella attuale (da aggiornare con quelle della
 	prossima cella da visitare). La strategia è di scansionare la matrice da sinistra
 	a destra e dall'alto al basso ma saltando tutte le celle che non appartengono
 	alla banda (altrimenti perderemmo il vantaggio dell'approccio "a banda").
 	Questa funzione permette di effettuare questo "salto" in tempo costante.
 	Il valore booleano di output informa se è stato possibile trovare la "next cell"
-	o meno (in pratica verrà ritornato false quando la scansione sarà finita
+	o meno (in pratica verrà ritornato false quando la scansione sarà finita,
 	altrimenti sarà restituito true).
 	*/
 
@@ -100,6 +100,21 @@ bool nextCell(int mrows, int mcols, int base, int k, int *nr, int *nc) {
 	if (pr+1-k < 1) *nc = 1;
 	else *nc = pr+1-k;
 	return true;
+}
+
+int coordConv(int base, int k, int r, int c) {
+	/*
+	Questa funzione converte le coordinate bidimensionali della matrice di
+	programmazione dinamica in un indice monodimensionale (usato per
+	accedere all'array che contiene i soli dati dentro la banda della matrice).
+	Riceve in input le dimensioni della banda (base e k) e la riga e colonna
+	da convertire. Restituisce in output l'indice nell'array di banda.
+	Si assume che l'input della funzione sia corretto, in particolare la riga
+	e la colonna da convertire devono appartenere veramente alla banda.
+	*/
+
+	int width = base + 2*k;
+	return width*r + c - r + k;
 }
 
 void reverseString(char *s, int begin, int end) {
@@ -121,6 +136,7 @@ void reverseString(char *s, int begin, int end) {
 }
 
 int main() {
+	// Dichiarazione delle due stringhe in input.
 	char* s1 = NULL;
 	char* s2 = NULL;
 
@@ -149,37 +165,16 @@ int main() {
 	size_t base = l2 - l1 + 1;
 	int k = 0;
 
-	// Vengono create le matrici di programmazione dinamica e di traceback.
-	// Il numero di righe e colonne delle matrici è maggiore di uno rispetto
-	// alla lunghezza delle stringhe in quanto la riga zero e la colonna zero
-	// tengono in considerazione il caso in cui una delle due stringhe è vuota.
-	int M[l1+1][l2+1];
-	char tracebackMatrix[l1+1][l2+1];
-
-	// Vengono ora inizializzate la riga zero e la colonna zero delle matrici
-	// sopracitate.
-	// Nel caso della matrice di programmazione dinamica, la riga e la colonna
-	// zero sono calcolate in questo modo in quanto rappresentano
-	// un allineamento tra due stringhe in cui una è un prefisso di s1 o s2
-	// mentre l'altra è composta da zero caratteri. Per effettuare tale
-	// allineamento è necessario che questa seconda stringa venga riempita di
-	// indel per far combaciare la sua lunghezza con quella della prima stringa.
-	// Un indel incolonnato con qualsiasi altro amminoacido ha un peso di -4, quindi
-	// il valore da inserire nella cella è la lunghezza della stringa moltiplicata
-	// per -4. La cella (0, 0) ha come valore speciale zero, in quanto
-	// rappresenta un allineamento tra due stringhe vuote.
-	// Per quanto riguarda la matrice traceback, invece, la riga e la colonna zero
-	// sono inizializzate per portare alla cella (0, 0) che termina il calcolo del
-	// percorso di traceback (ha un carattere speciale che verrà riconosciuto).
-	// La colonna e la riga zero portano di fatto all'aggiunta di indel.
-
-	M[0][0] = 0;
-	for (int i=1; i<l1+1; i++) M[i][0] = (-4)*i;
-	for (int i=1; i<l2+1; i++) M[0][i] = (-4)*i;
-
-	tracebackMatrix[0][0] = '#';
-	for (int i=1; i<l1+1; i++) tracebackMatrix[i][0] = 'U';
-	for (int i=1; i<l2+1; i++) tracebackMatrix[0][i] = 'L';
+	// Vengono ora dichiarati gli array che conterranno i valori appartenenti alle
+	// bande delle matrici di programmazione dinamica e di traceback.
+	// Gli array verranno allocati della lunghezza corretta ad ogni passo
+	// di computazione, man mano che la banda si espande.
+	// Il numero di righe e colonne delle "matrici" rappresentate sarà maggiore
+	// di uno rispetto alla lunghezza delle stringhe in quanto la riga zero e
+	// la colonna zero tengono in considerazione il caso in cui una delle
+	// due stringhe è vuota.
+	int* dpArray = NULL;
+	char* tracebackArray = NULL;
 
 	// Le seguenti variabili sono necessarie ai conteggi degli allineamenti durante
 	// le scansioni della matrice di programmazione dinamica.
@@ -187,6 +182,7 @@ int main() {
 	int leftValue, upValue, diagonalValue, maxValue;
 	char direction;
 	int maxAlignmentValueOutsideBand;
+	int latestK;
 	bool lastIteration = false;
 
 	// Il seguente ciclo itera la computazione aumentando il valore di k.
@@ -194,14 +190,73 @@ int main() {
 	// matrice o quando lo score dell'allineamento è maggiore di quello massimo
 	// raggiungibile con un percorso che esce dalla banda.
 	while (!lastIteration) {
-		// Viene settato il punto di partenza, cioè il punto (1, 1):
+		// Viene calcolato il numero di celle appartenenti alla banda in
+		// modo da allocare la corretta quantità di memoria.
+		// Viene quindi allocato lo spazio necessario in due array (conterranno
+		// solo celle appartenenti alla banda).
+		int arrayLength = (base+2*k) * (l1+1);
+		dpArray = (int*) realloc(dpArray, arrayLength*sizeof(int));
+		tracebackArray = (char*) realloc(tracebackArray, arrayLength*sizeof(char));
+		latestK = k;
+
+		// Vengono ora inizializzate le celle corrispondenti alla riga zero e
+		// alla colonna zero delle matrici di programmazione dinamica e traceback.
+		// Nel caso della matrice di programmazione dinamica, la riga e la colonna
+		// zero sono calcolate nel seguente modo in quanto rappresentano
+		// un allineamento tra due stringhe in cui una è un prefisso di s1 o s2
+		// mentre l'altra è composta da zero caratteri. Per effettuare tale
+		// allineamento è necessario che questa seconda stringa venga riempita di
+		// indel per far combaciare la sua lunghezza con quella della prima stringa.
+		// Un indel incolonnato con qualsiasi altro amminoacido ha un peso di -4, quindi
+		// il valore da inserire nella cella è la lunghezza della stringa moltiplicata
+		// per -4. La cella (0, 0) ha come valore speciale zero, in quanto
+		// rappresenta un allineamento tra due stringhe vuote.
+		// Per quanto riguarda la matrice traceback, invece, la riga e la colonna zero
+		// sono inizializzate per portare alla cella (0, 0) che termina il calcolo del
+		// percorso di traceback (ha un carattere speciale che verrà riconosciuto).
+		// La colonna e la riga zero portano di fatto all'aggiunta di indel.
+		// Naturalmente nell'array sono disponibili solo le celle che appartengono
+		// alla banda, quindi esse sono le uniche celle "di bordo" ad essere inizializzate.
+		// Partendo dalle celle a destra e sotto (0, 0) si seguono la riga 0 e la
+		// colonna 0 rispettivamente fino al confine della banda (punto in cui ci si arresta).
+
+		int bi;  // boundary index
+
+		// Condizioni al bordo della matrice di programmazione dinamica:
+		dpArray[coordConv(base, k, 0, 0)] = 0;
+		bi = 1;
+		while (bi<l1+1 && validPosition(l1+1, l2+1, base, k, bi, 0)) {
+			dpArray[coordConv(base, k, bi, 0)] = (-4)*bi;
+			bi++;
+		}
+		bi = 1;
+		while (bi<l2+1 && validPosition(l1+1, l2+1, base, k, 0, bi)) {
+			dpArray[coordConv(base, k, 0, bi)] = (-4)*bi;
+			bi++;
+		}
+
+		// Condizioni al bordo della matrice di traceback:
+		tracebackArray[coordConv(base, k, 0, 0)] = '#';
+		bi = 1;
+		while (bi<l1+1 && validPosition(l1+1, l2+1, base, k, bi, 0)) {
+			tracebackArray[coordConv(base, k, bi, 0)] = 'U';
+			bi++;
+		}
+		bi = 1;
+		while (bi<l2+1 && validPosition(l1+1, l2+1, base, k, 0, bi)) {
+			tracebackArray[coordConv(base, k, 0, bi)] = 'L';
+			bi++;
+		}
+
+		// Viene settato il punto di partenza per la scansione,
+		// cioè il punto (1, 1):
 		r=1; c=1;
 		// Viene fatta partire la scansione della banda:
 		do {
 			maxValue = INT_MIN;
 			// Verifica del valore a SINISTRA:
 			if (validPosition(l1+1, l2+1, base, k, r, c-1)) {
-				leftValue = M[r][c-1] + blosum62[aminoacidToIndex('*')][aminoacidToIndex(s2[c-1])];
+				leftValue = dpArray[coordConv(base, k, r, c-1)] + blosum62[aminoacidToIndex('*')][aminoacidToIndex(s2[c-1])];
 				if (leftValue > maxValue) {
 					maxValue = leftValue;
 					direction = 'L';
@@ -209,7 +264,7 @@ int main() {
 			}
 			// Verifica del valore SOPRA:
 			if (validPosition(l1+1, l2+1, base, k, r-1, c)) {
-				upValue = M[r-1][c] + blosum62[aminoacidToIndex(s1[r-1])][aminoacidToIndex('*')];
+				upValue = dpArray[coordConv(base, k, r-1, c)] + blosum62[aminoacidToIndex(s1[r-1])][aminoacidToIndex('*')];
 				if (upValue > maxValue) {
 					maxValue = upValue;
 					direction = 'U';
@@ -217,7 +272,7 @@ int main() {
 			}
 			// Verifica del valore DIAGONALE:
 			if (validPosition(l1+1, l2+1, base, k, r-1, c-1)) {
-				diagonalValue = M[r-1][c-1] + blosum62[aminoacidToIndex(s1[r-1])][aminoacidToIndex(s2[c-1])];
+				diagonalValue = dpArray[coordConv(base, k, r-1, c-1)] + blosum62[aminoacidToIndex(s1[r-1])][aminoacidToIndex(s2[c-1])];
 				if (diagonalValue > maxValue) {
 					maxValue = diagonalValue;
 					direction = 'D';
@@ -225,26 +280,12 @@ int main() {
 			}
 			// Scrittura nelle matrici di programmazione dinamica e traceback
 			// dei valori appena calcolati.
-			M[r][c] = maxValue;
-			tracebackMatrix[r][c] = direction;
+			dpArray[coordConv(base, k, r, c)] = maxValue;
+			tracebackArray[coordConv(base, k, r, c)] = direction;
 			// Con il while seguente vengono aggiornate le coordinate 'r' e 'c'
 			// per poter leggere nell'iterazione successiva la prossima cella
 			// della banda. Se non ci sono più celle nella banda il ciclo termina.
 		} while (nextCell(l1+1, l2+1, base, k, &r, &c));
-
-		// PER DEBUG --- STAMPA DELLE MATRICI:
-		// for (int i=0; i<l1+1; i++) {
-		// 	for (int j=0; j<l2+1; j++) {
-		// 		printf("%d ", M[i][j]);
-		// 	}
-		// 	printf("\n");
-		// }
-		// for (int i=0; i<l1+1; i++) {
-		// 	for (int j=0; j<l2+1; j++) {
-		// 		printf("%c ", tracebackMatrix[i][j]);
-		// 	}
-		// 	printf("\n");
-		// }
 
 		// Se il valore di k è talmente alto da portare alla copertura totale della
 		// matrice, significa che è stata eseguita l'ultima iterazione.
@@ -262,12 +303,17 @@ int main() {
 		for (int i=0; i<l1; i++)
 			maxAlignmentValueOutsideBand += blosum62[aminoacidToIndex(s1[i])][aminoacidToIndex(s1[i])];
 		maxAlignmentValueOutsideBand += (-4 * (base-1+2*k));
-		if (M[l1][l2] >= maxAlignmentValueOutsideBand) break;
+		if (dpArray[coordConv(base, k, l1, l2)] >= maxAlignmentValueOutsideBand) break;
 
 		// Viene incrementato k, allargando la banda:
 		if (k==0) k=1;
 		else k*=2;
 	}
+
+	// Si ripristina k all'ultimo valore usato per l'allocazione dei due array
+	// dato che il valore è importante per il corretto funzionamento di coordConv().
+	// Di fatto si vuole annullare un eventuale ultimo incremento.
+	k = latestK;
 
 	// L'allineamento è concluso, ora si deve applicare il traceback per ricostruirlo.
 	// Verrà utilizzata la matrice che è stata usata per appuntare le direzioni
@@ -279,11 +325,11 @@ int main() {
 	int alignmentLength = 0;
 	r = l1;
 	c = l2;
-	while (tracebackMatrix[r][c] != '#') {
+	while (tracebackArray[coordConv(base, k, r, c)] != '#') {
 		alignmentLength++;
-		if (tracebackMatrix[r][c] == 'L') c--;
-		else if (tracebackMatrix[r][c] == 'U') r--;
-		else if (tracebackMatrix[r][c] == 'D') {
+		if (tracebackArray[coordConv(base, k, r, c)] == 'L') c--;
+		else if (tracebackArray[coordConv(base, k, r, c)] == 'U') r--;
+		else if (tracebackArray[coordConv(base, k, r, c)] == 'D') {
 			r--;
 			c--;
 		}
@@ -297,18 +343,18 @@ int main() {
 	int p = 0;
 	r = l1;
 	c = l2;
-	while (tracebackMatrix[r][c] != '#') {
-		if (tracebackMatrix[r][c] == 'L') {
+	while (tracebackArray[coordConv(base, k, r, c)] != '#') {
+		if (tracebackArray[coordConv(base, k, r, c)] == 'L') {
 			aligned_s1[p] = '-';
 			aligned_s2[p] = s2[c-1];
 			c--;
 		}
-		else if (tracebackMatrix[r][c] == 'U') {
+		else if (tracebackArray[coordConv(base, k, r, c)] == 'U') {
 			aligned_s1[p] = s1[r-1];
 			aligned_s2[p] = '-';
 			r--;
 		}
-		else if (tracebackMatrix[r][c] == 'D') {
+		else if (tracebackArray[coordConv(base, k, r, c)] == 'D') {
 			aligned_s1[p] = s1[r-1];
 			aligned_s2[p] = s2[c-1];
 			r--;
@@ -341,7 +387,7 @@ int main() {
 	printf("[Sequenze in input]\nstr1: %s\nstr2: %s\n\n", s1, s2);
 	printf("[Allineamento]\nstr1: %s\nstr2: %s\ndiff: %s\n\n", aligned_s1, aligned_s2, differences);
 	printf("Lunghezza allineamento: %d\n", alignmentLength);
-	printf("Score allineamento: %d\n\n", M[l1][l2]);
+	printf("Score allineamento: %d\n\n", dpArray[coordConv(base, k, l1, l2)]);
 
 	return 0;
 }
